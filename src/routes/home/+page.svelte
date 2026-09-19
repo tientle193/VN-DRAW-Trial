@@ -5,8 +5,13 @@
 <div class="home">
 	<h1>VN-DRAW</h1>
 	<p class="lede">
-		A framework for assessing, visualising and acting on agricultural drought risk across Vietnam.
+		VN-DRAW (Vietnam Drought Risk Assessment and Warning) is a web-based portal developed to provide accessible information on drought risk assessment and early warning in Vietnam, 
+		supporting decision-making for drought risk adaptation, particularly in the agricultural sector. The portal visualises the Drought Risk Index (DRI) for each administrative unit 
+		at the provincial scale, based on the research findings of the RMIT research team. VN-DRAW is developed as part of the EIP Strategic Impact Fund 2026, to translate research outcomes 
+		into an accessible tool for stakeholders and support more informed, spatially targeted drought adaptation and management.
 	</p>
+	
+	<h2 class="section-title">KEY VALUES</h2>
 	<FrameworkDiagram />
 </div>
 
@@ -27,6 +32,8 @@
 		color: var(--ink-secondary);
 		margin: 0 0 1.5rem;
 		max-width: 840px;
-		line-height: 1.5;
+		max-width: 100%;
+		line-height: 1.6;
+		text-align: justify;
 	}
 </style>

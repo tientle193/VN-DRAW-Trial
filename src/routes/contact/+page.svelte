@@ -63,18 +63,25 @@
 				<span class="role">Corresponding Author</span>
 				<span class="name">Tien Le</span>
 				<a class="detail" href="mailto:tien.le3@rmit.edu.au">tien.le3@rmit.edu.au</a>
-				<span class="detail"
-					>RMIT University, School of Science, GPO Box 2476, Melbourne, VIC 3001, Australia</span
-				>
+				<span class="detail">RMIT University, School of Science, GPO Box 2476, Melbourne, VIC 3001, Australia</span>
 			</div>
+
 			<div class="contact-entry">
-				<span class="role">Author</span>
+				<span class="role">Coordinator</span>
 				<span class="name">Trinh Duc Tran</span>
 				<a class="detail" href="mailto:ductrinh.tran@rmit.edu.vn">ductrinh.tran@rmit.edu.vn</a>
+				<span class="detail">RMIT University, Ho Chi Minh City, Vietnam</span>
 			</div>
-		</div>
-	</section>
 
+			<div class="contact-entry">
+				<span class="role">Web Design Helper</span>
+				<span class="name">Tushen Lan</span>
+				<a class="detail" href="mailto:S4137286@student.rmit.edu.au">S4137286@student.rmit.edu.au</a>
+				<span class="detail">RMIT University, School of Science, Melbourne, VIC 3001, Australia</span>
+			</div>
+</div>
+	
+	</section>
 	<section class="block">
 		<h2>Research Team</h2>
 		<div class="team-grid">

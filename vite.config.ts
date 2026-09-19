@@ -2,10 +2,10 @@ import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-// GitHub Pages serves this repo at https://tam-sam.github.io/VN-DRAW-SL/, so
+// GitHub Pages serves this repo at https://github.com/tientle193/VN-DRAW-Trial, so
 // production builds need that path prefixed onto every route/asset. Local
 // dev/preview stay at the root. The deploy workflow sets BASE_PATH.
-const rawBase = process.env.BASE_PATH ?? '';
+const rawBase = process.env.BASE_PATH ?? '/VN-DRAW-Trial';
 if (rawBase !== '' && !rawBase.startsWith('/')) {
 	throw new Error(`BASE_PATH must start with "/", got "${rawBase}"`);
 }
