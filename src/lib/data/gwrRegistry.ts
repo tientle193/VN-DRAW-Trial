@@ -1,3 +1,4 @@
+import { base } from '$app/paths';
 import type { LatLngBoundsExpression } from 'leaflet';
 
 /**
@@ -14,5 +15,5 @@ export const GWR_RASTER_BOUNDS: LatLngBoundsExpression = [
  */
 export function getGwrRasterUrl(year: number, month: number): string {
   const mm = String(month).padStart(2, '0');
-  return `/rasters/gwr/gwr_spei_${year}_${mm}.png`;
+  return `${base}/rasters/gwr/gwr_spei_${year}_${mm}.png`;
 }
