@@ -116,7 +116,7 @@ class DroughtState {
 		if (this.datasets.has(key) || this.loadingKeys.has(key)) return;
 		this.loadingKeys.add(key);
 		try {
-			const res = await fetch(apiPathFor(indicator, year));
+			const res = await fetch(apiPathFor(indicator, year), { cache: 'no-store' });
 			if (!res.ok) throw new Error(`Failed to load ${indicator} data (${res.status})`);
 			const fc = (await res.json()) as DriFeatureCollection;
 
