@@ -1,7 +1,3 @@
-// Shared types + pure helpers for the drought indicator choropleths.
-// Field names below were verified directly against the qgis2web exports in /data
-// (data/DRI_2020_1.js, data/DEI_15_22_13.js, data/DVI_15_22_12.js, data/DHI_<year>_*.js).
-
 export interface DriProperties {
 	ADM1_EN: string;
 	ADM1_VI: string;
@@ -16,14 +12,11 @@ export type DriFeatureCollection = GeoJSON.FeatureCollection<
 
 export type IndicatorId = 'dri' | 'dhi' | 'dei' | 'dvi';
 
-// The full span data actually exists for. DRI is missing 2016 entirely (see
-// availableYears); DHI has one file per year here, DEI/DVI have every year.
 export const ALL_YEARS = [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022];
 
 export interface IndicatorDef {
 	id: IndicatorId;
 	label: string;
-	/** DHI is monthly (one source file per year); DRI/DEI/DVI are yearly. */
 	monthly: boolean;
 	fieldFor: (year: number, month?: number) => string;
 }
@@ -69,28 +62,77 @@ export function indicatorValue(
 	year: number,
 	month?: number
 ): number | null {
-	const v = props[indicatorField(indicator, year, month)];
-	return typeof v === 'number' ? v : null;
+	if (!props) return null;
+
+	// 1. Direct key lookup from indicator definition
+	const primary = indicatorField(indicator, year, month);
+	if (typeof props[primary] === 'number') return props[primary] as number;
+
+	const mm = String(month ?? 1).padStart(2, '0');
+	const m = String(month ?? 1);
+
+	// 2. Resilient candidates based on typical QGIS naming patterns
+	const candidates: string[] = [];
+	if (indicator === 'dhi') {
+		candidates.push(
+			`DHI${year}_DHI${year}${mm}`,
+			`DHI_${year}_${mm}`,
+			`DHI${year}_${mm}`,
+			`DHI_${year}_${m}`,
+			`DHI${year}${mm}`,
+			`DHI_${mm}`,
+			`DHI${mm}`,
+			`dhi_${year}_${mm}`,
+			`dhi_${mm}`
+		);
+	} else if (indicator === 'dei') {
+		candidates.push(
+			`DEI15to22_EW_DEI_${year}`,
+			`DEI_${year}`,
+			`DEI${year}`,
+			`dei_${year}`
+		);
+	} else if (indicator === 'dvi') {
+		candidates.push(
+			`DVI15to22_PCA_DVI_${year}`,
+			`DVI_${year}`,
+			`DVI${year}`,
+			`dvi_${year}`
+		);
+	} else if (indicator === 'dri') {
+		candidates.push(
+			`Constant_yearlyDRI15to22_DRI${year}`,
+			`DRI_${year}`,
+			`DRI${year}`,
+			`dri_${year}`
+		);
+	}
+
+	for (const key of candidates) {
+		if (typeof props[key] === 'number') return props[key] as number;
+	}
+
+	// 3. Fallback: scan property keys case-insensitively
+	const targetEnd = indicator === 'dhi' ? `${year}${mm}` : `${year}`;
+	const altEnd = indicator === 'dhi' ? `${mm}` : `${year}`;
+	const prefix = indicator.toLowerCase();
+
+	for (const [k, val] of Object.entries(props)) {
+		if (typeof val !== 'number') continue;
+		const lower = k.toLowerCase();
+		if (lower.startsWith(prefix) && (lower.endsWith(targetEnd) || lower.endsWith(altEnd))) {
+			return val;
+		}
+	}
+
+	return null;
 }
 
-// Which years actually have data for this indicator in the given dataset
-// (DRI's 2016 column exists but is null for every province, for example).
 export function availableYears(fc: DriFeatureCollection, indicator: IndicatorId): number[] {
 	return ALL_YEARS.filter((year) =>
 		fc.features.some((f) => indicatorValue(f.properties, indicator, year) != null)
 	);
 }
-
-// Matches each indicator's field-naming convention exactly, so a scan over a
-// loaded FeatureCollection's own property keys can find every year/month
-// column that belongs to it — without needing to be told which years/months
-// are actually present in the file (used by continuousDomain below).
-const FIELD_PATTERNS: Record<IndicatorId, RegExp> = {
-	dri: /^Constant_yearlyDRI15to22_DRI\d{4}$/,
-	dhi: /^DHI\d{4}_DHI\d{6}$/,
-	dei: /^DEI15to22_EW_DEI_\d{4}$/,
-	dvi: /^DVI15to22_PCA_DVI_\d{4}$/
-};
 
 export interface RiskClass {
 	label: string;
@@ -99,8 +141,6 @@ export interface RiskClass {
 	max: number;
 }
 
-// Breakpoints + colors match the original qgis2web style function exactly
-// (ColorBrewer RdYlGn, 5-class), so the map reads identically to the legacy export.
 const DRI_CLASSES: RiskClass[] = [
 	{ label: 'Very Low', color: '#1a9641', min: -Infinity, max: 0.3 },
 	{ label: 'Low', color: '#a6d96a', min: 0.3, max: 0.4 },
@@ -120,9 +160,6 @@ export function driRiskClasses(): RiskClass[] {
 	return DRI_CLASSES;
 }
 
-// DHI/DEI/DVI use a continuous green→red gradient instead of DRI's discrete
-// 5-class breakpoints — no classification thresholds needed. The stops reuse
-// DRI's exact palette for visual consistency across all four indicators.
 const CONTINUOUS_STOPS = ['#1a9641', '#a6d96a', '#ffffc0', '#fdae61', '#d7191c'];
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -140,7 +177,6 @@ function mixHex(a: string, b: string, t: number): string {
 	);
 }
 
-// t is the value's position in [0, 1] along the gradient (see continuousDomain).
 export function continuousColor(t: number): string {
 	const clamped = Math.min(1, Math.max(0, t));
 	const segments = CONTINUOUS_STOPS.length - 1;
@@ -155,9 +191,6 @@ export function continuousStops(): string[] {
 
 const RELATIVE_LABELS = ['Very Low', 'Low', 'Moderate', 'High', 'Very High'];
 
-// A descriptive label for where a value sits along the gradient — computed
-// from its relative position, not a fixed absolute threshold (there isn't one
-// for these three indicators), same 5 names as DRI's classes for consistency.
 export function relativeLabel(t: number): string {
 	return RELATIVE_LABELS[Math.min(4, Math.floor(Math.min(1, Math.max(0, t)) * 5))];
 }
@@ -167,23 +200,38 @@ export interface Domain {
 	max: number;
 }
 
-// The true min/max across every year/month column this indicator occupies in
-// the CURRENTLY LOADED file (all 8 years for DRI/DEI/DVI; all 12 months of
-// whichever year is loaded for DHI) — not just the one year/month on screen —
-// so the color scale stays stable as you move through years/months instead of
-// visually rescaling every time.
-export function continuousDomain(fc: DriFeatureCollection, indicator: IndicatorId): Domain {
-	const pattern = FIELD_PATTERNS[indicator];
+export function continuousDomain(
+	fc: DriFeatureCollection,
+	indicator: IndicatorId,
+	currentYear: number
+): Domain {
 	let min = Infinity;
 	let max = -Infinity;
+
 	for (const f of fc.features) {
-		for (const [key, v] of Object.entries(f.properties)) {
-			if (typeof v !== 'number' || !pattern.test(key)) continue;
-			if (v < min) min = v;
-			if (v > max) max = v;
+		if (indicator === 'dhi') {
+			for (let m = 1; m <= 12; m++) {
+				const val = indicatorValue(f.properties, indicator, currentYear, m);
+				if (val != null) {
+					if (val < min) min = val;
+					if (val > max) max = val;
+				}
+			}
+		} else {
+			for (const y of ALL_YEARS) {
+				const val = indicatorValue(f.properties, indicator, y);
+				if (val != null) {
+					if (val < min) min = val;
+					if (val > max) max = val;
+				}
+			}
 		}
 	}
-	return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : { min: 0, max: 1 };
+
+	if (Number.isFinite(min) && Number.isFinite(max) && min < max) {
+		return { min, max };
+	}
+	return { min: 0, max: 1 };
 }
 
 export interface RiskInfo {
@@ -191,8 +239,6 @@ export interface RiskInfo {
 	label: string;
 }
 
-// Unified color+label lookup for the map/popup/legend: DRI uses its fixed
-// discrete classes; DHI/DEI/DVI interpolate continuously across `domain`.
 export function riskInfoFor(
 	value: number | null,
 	indicator: IndicatorId,

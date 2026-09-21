@@ -35,35 +35,31 @@
 	let speiLisaLayer: LType.GeoJSON | undefined;
 	let speiRasterOverlay: LType.ImageOverlay | undefined;
 	let boundaryLayer: LType.GeoJSON | undefined;
-	let renderedData: DriFeatureCollection | null = null;
+	let lastLoadedDataset: DriFeatureCollection | null = null;
 	let satelliteLayer: LType.TileLayer | undefined;
 	let streetLayer: LType.TileLayer | undefined;
 	let resizeObserver: ResizeObserver | undefined;
 
-	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const layersByName = new Map<string, LType.Layer>();
 
-	function styleFor(
+	function getFeatureStyle(
 		feature: DriFeature,
 		indicator: IndicatorId,
 		year: number,
 		month: number,
 		domain: Domain | null
 	): LType.PathOptions {
-		const risk = riskInfoFor(
-			indicatorValue(feature.properties, indicator, year, month),
-			indicator,
-			domain
-		);
+		const val = indicatorValue(feature.properties, indicator, year, month);
+		const risk = riskInfoFor(val, indicator, domain);
 		return {
-			color: '#232323',
+			color: '#333333',
 			weight: 1,
-			fillOpacity: 1,
+			fillOpacity: 0.9,
 			fillColor: risk?.color ?? '#cccccc'
 		};
 	}
 
-	function popupHtml(
+	function createPopupContent(
 		props: DriProperties,
 		indicator: IndicatorId,
 		year: number,
@@ -75,9 +71,9 @@
 		const label = INDICATOR_LABEL[indicator];
 		const period = indicator === 'dhi' ? `${String(month).padStart(2, '0')}/${year}` : `${year}`;
 		return `<div class="dri-popup">
-			<h3>${props.ADM1_EN}</h3>
-			<div class="popup-row"><strong>${label} ${period}:</strong> ${value != null ? value.toFixed(2) : 'No data'}</div>
-			<div class="popup-row"><strong>Risk category:</strong> ${risk?.label ?? 'Unknown'}</div>
+			<h3>${props.ADM1_EN ?? 'Province'}</h3>
+			<div class="popup-row"><strong>${label} (${period}):</strong> ${value != null ? Number(value).toFixed(3) : 'No data'}</div>
+			<div class="popup-row"><strong>Risk Level:</strong> ${risk?.label ?? 'Unknown'}</div>
 		</div>`;
 	}
 
@@ -85,47 +81,40 @@
 		droughtState.selectedProvinceName = props.ADM1_EN;
 	}
 
-	// Maps q_value from qgis2web exports directly to cluster colors
 	function getLisaStyle(feature: any): LType.PathOptions {
-    const p = feature?.properties ?? {};
-    const q = Number(p.q_value);
+		const p = feature?.properties ?? {};
+		const q = Number(p.q_value);
 
-    // Anselin LISA standard palette:
-    // 0 = High-High (Hotspot, intense red)
-    // 1 = Low-High Outlier (Soft sky blue)
-    // 2 = High-Low Outlier (Soft rose pink)
-    // 3 = Low-Low (Coldspot, rich cobalt blue)
-    // 4 = Not Significant (Muted transparent warm gray)
-    let fillColor = 'rgba(180, 185, 190, 0.25)'; // Muted background so clusters stand out
-    let radius = 2.8;
-    let fillOpacity = 0.35;
+		let fillColor = 'rgba(180, 185, 190, 0.25)';
+		let radius = 3.0;
+		let fillOpacity = 0.35;
 
-    if (q === 0) {
-        fillColor = '#e31a1c'; // HH (Deep Red)
-        radius = 3.6;
-        fillOpacity = 0.9;
-    } else if (q === 1) {
-        fillColor = '#a6cee3'; // LH (Light Blue)
-        radius = 3.2;
-        fillOpacity = 0.85;
-    } else if (q === 2) {
-        fillColor = '#fb9a99'; // HL (Light Red / Salmon)
-        radius = 3.2;
-        fillOpacity = 0.85;
-    } else if (q === 3) {
-        fillColor = '#1f78b4'; // LL (Deep Blue)
-        radius = 3.6;
-        fillOpacity = 0.9;
-    }
+		if (q === 0) {
+			fillColor = '#e31a1c';
+			radius = 3.8;
+			fillOpacity = 0.9;
+		} else if (q === 1) {
+			fillColor = '#a6cee3';
+			radius = 3.4;
+			fillOpacity = 0.85;
+		} else if (q === 2) {
+			fillColor = '#fb9a99';
+			radius = 3.4;
+			fillOpacity = 0.85;
+		} else if (q === 3) {
+			fillColor = '#1f78b4';
+			radius = 3.8;
+			fillOpacity = 0.9;
+		}
 
-    return {
-        radius,
-        fillColor,
-        fillOpacity,
-        stroke: false, // Completely eliminates stroke/outlier borders
-        weight: 0
-    };
-}
+		return {
+			radius,
+			fillColor,
+			fillOpacity,
+			stroke: false,
+			weight: 0
+		};
+	}
 
 	function popupLisaHtml(props: any, year: number, month: number): string {
 		const mm = String(month).padStart(2, '0');
@@ -181,26 +170,26 @@
 
 	onDestroy(() => resizeObserver?.disconnect());
 
-	// Drought mode: Ensure standard datasets load
+	// Drought mode: ensure loaded on parameter changes
 	$effect(() => {
 		if (droughtState.category === 'drought') {
 			void droughtState.ensureLoaded(droughtState.selectedIndicator, droughtState.selectedYear);
 		}
 	});
 
-	// RENDER PIPELINE: Reactive to category, subtype, date, and map readiness
+	// MAIN RENDER PIPELINE
 	$effect(() => {
 		if (!isMapReady || !L || !map) return;
 
 		const category = droughtState.category;
 		const subtype = droughtState.speiSubtype;
+		const indicator = droughtState.selectedIndicator;
 		const year = droughtState.selectedYear;
 		const month = droughtState.selectedMonth;
+		const domain = droughtState.continuousDomain;
 
 		// --- CASE 1: SPEI GWR RASTER ---
 		if (category === 'spei' && subtype === 'gwr') {
-			renderedData = null;
-
 			if (geoJsonLayer) {
 				map.removeLayer(geoJsonLayer);
 				geoJsonLayer = undefined;
@@ -215,6 +204,7 @@
 				speiRasterOverlay = undefined;
 			}
 
+			lastLoadedDataset = null;
 			const rasterUrl = getGwrRasterUrl(year, month);
 			speiRasterOverlay = L.imageOverlay(rasterUrl, GWR_RASTER_BOUNDS, {
 				opacity: 0.85,
@@ -225,8 +215,6 @@
 
 		// --- CASE 2: SPEI LISA VECTOR ---
 		if (category === 'spei' && subtype === 'lisa') {
-			renderedData = null;
-
 			if (speiRasterOverlay) {
 				map.removeLayer(speiRasterOverlay);
 				speiRasterOverlay = undefined;
@@ -241,6 +229,7 @@
 				speiLisaLayer = undefined;
 			}
 
+			lastLoadedDataset = null;
 			loadLisaData(year, month)
 				.then((fc) => {
 					if (!L || !map || droughtState.category !== 'spei' || droughtState.speiSubtype !== 'lisa')
@@ -262,7 +251,7 @@
 			return;
 		}
 
-		// --- CASE 3: STANDARD DROUGHT CHOROPLETH ---
+		// --- CASE 3: DROUGHT CHOROPLETH ---
 		if (speiRasterOverlay) {
 			map.removeLayer(speiRasterOverlay);
 			speiRasterOverlay = undefined;
@@ -273,53 +262,51 @@
 		}
 
 		const fc = droughtState.currentData;
-		if (!fc || fc === renderedData) return;
+		if (!fc) return;
 
-		if (geoJsonLayer) {
-			map.removeLayer(geoJsonLayer);
-			layersByName.clear();
-		}
-
-		const indicator = droughtState.selectedIndicator;
-		const domain = droughtState.continuousDomain;
-		geoJsonLayer = L.geoJSON(fc, {
-			style: (feature) => styleFor(feature as DriFeature, indicator, year, month, domain),
-			onEachFeature: (feature, layer) => {
-				const props = (feature as DriFeature).properties;
-				layersByName.set(props.ADM1_EN, layer);
-				layer.bindPopup(popupHtml(props, indicator, year, month, domain), { maxWidth: 280 });
-				layer.on('click', () => selectProvince(props));
+		// Rebuild the GeoJSON layer if the dataset changed or hasn't been created yet
+		if (!geoJsonLayer || lastLoadedDataset !== fc) {
+			if (geoJsonLayer) {
+				map.removeLayer(geoJsonLayer);
+				layersByName.clear();
 			}
-		}).addTo(map);
-		renderedData = fc;
 
-		droughtState.focusProvince = (name: string) => {
-			const layer = layersByName.get(name) as LType.Polygon | undefined;
-			if (!layer || !map) return;
-			map.fitBounds(layer.getBounds(), { maxZoom: 8, padding: [40, 40] });
-			layer.openPopup();
-			selectProvince((layer as unknown as { feature: DriFeature }).feature.properties);
-		};
+			geoJsonLayer = L.geoJSON(fc, {
+				style: (feature) => getFeatureStyle(feature as DriFeature, indicator, year, month, domain),
+				onEachFeature: (feature, layer) => {
+					const props = (feature as DriFeature).properties;
+					layersByName.set(props.ADM1_EN, layer);
+					layer.bindPopup(createPopupContent(props, indicator, year, month, domain), { maxWidth: 280 });
+					layer.on('click', () => selectProvince(props));
+				}
+			}).addTo(map);
+
+			lastLoadedDataset = fc;
+
+			droughtState.focusProvince = (name: string) => {
+				const layer = layersByName.get(name) as LType.Polygon | undefined;
+				if (!layer || !map) return;
+				map.fitBounds(layer.getBounds(), { maxZoom: 8, padding: [40, 40] });
+				layer.openPopup();
+				selectProvince((layer as unknown as { feature: DriFeature }).feature.properties);
+			};
+		} else {
+			// Dataset is identical, but month, year, or indicator slider shifted:
+			// Directly update every layer's style and popup in place
+			geoJsonLayer.eachLayer((layer: any) => {
+				const feature = layer.feature as DriFeature | undefined;
+				if (!feature) return;
+
+				const updatedStyle = getFeatureStyle(feature, indicator, year, month, domain);
+				if (typeof layer.setStyle === 'function') {
+					layer.setStyle(updatedStyle);
+				}
+				layer.setPopupContent(createPopupContent(feature.properties, indicator, year, month, domain));
+			});
+		}
 	});
 
-	// Restyle drought choropleth when sliders change inside the same dataset
-	$effect(() => {
-		if (droughtState.category !== 'drought' || !geoJsonLayer) return;
-		const indicator = droughtState.selectedIndicator;
-		const year = droughtState.selectedYear;
-		const month = droughtState.selectedMonth;
-		const domain = droughtState.continuousDomain;
-
-		geoJsonLayer.setStyle((feature) =>
-			styleFor(feature as DriFeature, indicator, year, month, domain)
-		);
-		geoJsonLayer.eachLayer((layer) => {
-			const props = (layer as unknown as { feature: DriFeature }).feature.properties;
-			layer.setPopupContent(popupHtml(props, indicator, year, month, domain));
-		});
-	});
-
-	// 2025 Provincial boundary overlay
+	// Boundary layer
 	$effect(() => {
 		if (droughtState.showNewBoundary) void droughtState.loadBoundary();
 	});
@@ -331,7 +318,7 @@
 
 		if (!boundaryLayer && fc) {
 			boundaryLayer = L.geoJSON(fc, {
-				style: { color: '#2563eb', weight: 1.5, opacity: 0.9, dashArray: '6 4', fill: false, interactive: false},
+				style: { color: '#2563eb', weight: 1.5, opacity: 0.9, dashArray: '6 4', fill: false, interactive: false },
 				onEachFeature: (feature, layer) => {
 					const name = (feature as GeoJSON.Feature).properties?.adm1_name as string | undefined;
 					if (name) layer.bindTooltip(name, { sticky: true });
@@ -344,7 +331,7 @@
 		else map.removeLayer(boundaryLayer);
 	});
 
-	// Basemap switching
+	// Basemap
 	$effect(() => {
 		const target = droughtState.basemap;
 		if (!isMapReady || !map || !satelliteLayer || !streetLayer) return;
